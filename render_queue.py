@@ -201,6 +201,36 @@ class RenderQueueApp(QWidget):
         
         layout.addWidget(executableSection)
 
+        # Output Directory Section
+        outputSection = QWidget()
+        outputSection.setObjectName("section")
+        outputLayout = QVBoxLayout(outputSection)
+        outputLayout.setSpacing(5)
+        
+        outputHeaderLayout = QHBoxLayout()
+        outputLabel = QLabel("Output Directory:")
+        outputLabel.setStyleSheet("font-weight: bold; background: transparent;")
+        self.outputStatusLabel = QLabel()
+        
+        outputHeaderLayout.addWidget(outputLabel)
+        outputHeaderLayout.addWidget(self.outputStatusLabel)
+        outputHeaderLayout.addStretch()
+        outputLayout.addLayout(outputHeaderLayout)
+        
+        outputPathLayout = QHBoxLayout()
+        self.outputPathInput = QLineEdit()
+        self.outputPathInput.setPlaceholderText("Select output directory for rendered frames")
+        
+        self.selectOutputButton = QPushButton("Browse")
+        self.selectOutputButton.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DirIcon))
+        self.selectOutputButton.setMaximumWidth(100)
+        
+        outputPathLayout.addWidget(self.outputPathInput)
+        outputPathLayout.addWidget(self.selectOutputButton)
+        outputLayout.addLayout(outputPathLayout)
+        
+        layout.addWidget(outputSection)
+
         # File List Section
         listSection = QWidget()
         listSection.setObjectName("section")
@@ -279,6 +309,8 @@ class RenderQueueApp(QWidget):
         self.selectBlenderButton.clicked.connect(self.selectBlenderPath)
         self.listWidget.itemSelectionChanged.connect(self.updateRemoveButton)
         self.blenderPathInput.textChanged.connect(self.updateExecutableStatus)
+        self.selectOutputButton.clicked.connect(self.selectOutputPath)
+        self.outputPathInput.textChanged.connect(self.updateOutputStatus)
 
         self.setLayout(layout)
 
@@ -302,18 +334,33 @@ class RenderQueueApp(QWidget):
             self.blender_executable = file
             self.blenderPathInput.setText(file)
 
+    def selectOutputPath(self):
+        directory = QFileDialog.getExistingDirectory(self, "Select Output Directory")
+        if directory:
+            self.outputPathInput.setText(directory)
+
     def startQueue(self):
         if not self.queue:
             self.statusLabel.setText("Status: No files in queue!")
             return
+            
         self.blender_executable = self.blenderPathInput.text().strip()
         if not self.blender_executable or not os.path.exists(self.blender_executable):
             self.statusLabel.setText("Invalid Blender executable! Cannot start rendering.")
             return
 
+        output_dir = self.outputPathInput.text().strip()
+        if not output_dir or not os.path.exists(output_dir):
+            self.statusLabel.setText("Invalid output directory! Cannot start rendering.")
+            return
+
+        # Disable file management buttons
+        self.addButton.setEnabled(False)
+        self.removeButton.setEnabled(False)
+        
         self.rendering = True
         self.stopButton.setEnabled(True)
-        self.render_thread = threading.Thread(target=self.render_files, daemon=True)  # Store thread reference
+        self.render_thread = threading.Thread(target=self.render_files, daemon=True)
         self.render_thread.start()
 
     def render_files(self):
@@ -373,10 +420,15 @@ print("FRAME_RANGE:%d,%d" % (scene.frame_start, scene.frame_end))
                 if total_frames == 1:
                     print("Warning: Could not detect frame range, defaulting to 1 frame")
 
-                # Now start the actual render
+                # Create subfolder for this blend file
+                blend_filename = os.path.splitext(os.path.basename(file))[0]
+                output_subfolder = os.path.join(self.outputPathInput.text().strip(), blend_filename)
+                os.makedirs(output_subfolder, exist_ok=True)
+
+                # Now start the actual render with the subfolder
                 if sys.platform == 'win32':
                     self.process = subprocess.Popen(
-                        f'"{self.blender_executable}" -b "{file}" -o //output -F PNG -x 1 -a',
+                        f'"{self.blender_executable}" -b "{file}" -o "{output_subfolder}/frame_" -F PNG -x 1 -a',
                         shell=True,
                         creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                         stdout=subprocess.PIPE,
@@ -385,7 +437,7 @@ print("FRAME_RANGE:%d,%d" % (scene.frame_start, scene.frame_end))
                     )
                 else:
                     self.process = subprocess.Popen(
-                        f'"{self.blender_executable}" -b "{file}" -o //output -F PNG -x 1 -a',
+                        f'"{self.blender_executable}" -b "{file}" -o "{output_subfolder}/frame_" -F PNG -x 1 -a',
                         shell=True,
                         preexec_fn=os.setsid,
                         stdout=subprocess.PIPE,
@@ -431,6 +483,10 @@ print("FRAME_RANGE:%d,%d" % (scene.frame_start, scene.frame_end))
             self.statusLabel.setText("Rendering Complete!")
             self.progressBar.setValue(1000)
             self.fileProgressBar.setValue(1000)
+            # Re-enable file management buttons after completion
+            self.addButton.setEnabled(True)
+            self.updateRemoveButton()
+        
         self.rendering = False
         self.stopButton.setEnabled(False)
         self.render_thread = None
@@ -463,6 +519,10 @@ print("FRAME_RANGE:%d,%d" % (scene.frame_start, scene.frame_end))
                 self.process = None
 
         self.stopButton.setEnabled(False)
+        # Re-enable file management buttons
+        self.addButton.setEnabled(True)
+        self.updateRemoveButton()  # This will enable remove button only if files are selected
+        
         self.statusLabel.setText("Rendering Stopped.")
         self.progressBar.setValue(0)
         self.fileProgressBar.setValue(0)
@@ -485,6 +545,20 @@ print("FRAME_RANGE:%d,%d" % (scene.frame_start, scene.frame_end))
         # Force style update
         self.blenderPathInput.style().unpolish(self.blenderPathInput)
         self.blenderPathInput.style().polish(self.blenderPathInput)
+
+    def updateOutputStatus(self):
+        path = self.outputPathInput.text().strip()
+        if os.path.exists(path) and os.path.isdir(path):
+            self.outputStatusLabel.setText("✓ Valid")
+            self.outputStatusLabel.setStyleSheet("color: #28a745;")
+            self.outputPathInput.setObjectName("")
+        else:
+            self.outputStatusLabel.setText("⚠️ Invalid")
+            self.outputStatusLabel.setObjectName("warning")
+            self.outputPathInput.setObjectName("warning")
+        
+        self.outputPathInput.style().unpolish(self.outputPathInput)
+        self.outputPathInput.style().polish(self.outputPathInput)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
