@@ -24,3 +24,7 @@ if you have any suggestions, please open an issue or submit a pull request.
 ## license
 this project is licensed under the MIT license. see the LICENSE file for details.
 
+## how it looks
+the below is the UI:
+
+![UI](https://raw.githubusercontent.com/sudotman/sudotman/refs/heads/main/demos/smallerprojects/demo.png)
